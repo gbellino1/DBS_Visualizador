@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generador de programas DBS</title>
+<style>
+:root{--bg:#f3f4f4;--ink:#1d2b2a;--mut:#667;--teal:#1fb5ac;--card:#fff;--line:#d5dad9;--inp:#e9ebeb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161b1b;--ink:#e6eeed;--mut:#9aa8a6;--card:#212929;--line:#364140;--inp:#2b3534}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 "Segoe UI",system-ui,sans-serif;padding:16px}
+h1{font-size:20px;margin:0 0 12px}
+.wrap{max-width:1100px;margin:auto;display:grid;gap:16px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:800px){.cols{grid-template-columns:1fr}}
+.hemi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.hemi h2{margin:0 0 8px;font-size:16px;color:var(--teal)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+label{font-size:13px;color:var(--mut)}
+input[type=text],input[type=number],select{background:var(--inp);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit;width:90px}
+input[type=text].w{width:160px}
+.prog{border-top:1px dashed var(--line);padding-top:10px;margin-top:8px}
+.prog b{display:block;margin-bottom:6px}
+.cts{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-bottom:8px}
+.ct{border:1px solid var(--line);background:var(--inp);color:var(--ink);border-radius:6px;padding:6px 0;font:inherit;cursor:pointer;text-align:center}
+.ct small{display:block;font-size:11px;color:var(--mut)}
+.ct.n{background:var(--teal);color:#fff;border-color:var(--teal)}.ct.n small{color:#e8fffd}
+.ct.p{background:#f5a623;color:#fff;border-color:#f5a623}.ct.p small{color:#fff}
+button.b{background:var(--teal);color:#fff;border:0;border-radius:6px;padding:8px 14px;font:inherit;cursor:pointer}
+button.b.s{background:var(--inp);color:var(--ink);border:1px solid var(--line)}
+canvas{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#f3f4f4}
+textarea{width:100%;height:120px;background:var(--inp);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px;font:12px/1.4 Consolas,monospace}
+.hint{font-size:12px;color:var(--mut)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Generador de programas DBS</h1>
+  <div class="row">
+    <label>Paciente / ID <input type="text" class="w" id="pid" placeholder="opcional"></label>
+    <label>Fecha <input type="text" id="fecha"></label>
+  </div>
+  <p class="hint" style="margin:0">Clic en un contacto: apagado → negativo (−) → positivo (+). Carcasa: apagada, + o −.</p>
+  <div class="cols" id="forms"></div>
+  <div class="row">
+    <button class="b" id="dl">Descargar PNG</button>
+    <button class="b s" id="cpCsv">Copiar CSV</button>
+    <button class="b s" id="cpJson">Copiar JSON</button>
+  </div>
+  <canvas id="cv"></canvas>
+  <label>Datos para base de datos (CSV)</label>
+  <textarea id="csv" readonly></textarea>
+  <label>JSON</label>
+  <textarea id="json" readonly></textarea>
+</div>
+<script>
+const newP=()=>({c:Array(8).fill(0),cs:0,amp:'3.20',pw:'40',hz:'80'});
+const S={L:{t:'STN',inter:false,p:[newP(),newP()]},R:{t:'STN',inter:false,p:[newP(),newP()]}};
+const META={L:{name:'Izquierdo',lead:'Lead1',br:'L-brain',off:0},R:{name:'Derecho',lead:'Lead2',br:'R-brain',off:8}};
+const SYM={0:'',n:'−',p:'+'};
+const $=id=>document.getElementById(id);
+$('fecha').value=new Date().toISOString().slice(0,10);
+
+function build(){
+  const f=$('forms');f.innerHTML='';
+  for(const k of ['L','R']){
+    const m=META[k],h=S[k],d=document.createElement('div');d.className='hemi';
+    d.innerHTML=`<h2>${m.name} · contactos ${m.off+1}–${m.off+8}</h2>
+    <div class="row"><label>Target <input type="text" data-k="${k}" data-f="t" value="${h.t}"></label>
+    <label><input type="checkbox" data-k="${k}" data-f="inter" ${h.inter?'checked':''}> Interleaving (2.º programa)</label></div>`;
+    h.p.forEach((p,i)=>{
+      if(i&&!h.inter)return;
+      const pd=document.createElement('div');pd.className='prog';
+      let cts='';p.c.forEach((s,j)=>cts+=`<button class="ct ${s||''}" data-k="${k}" data-i="${i}" data-j="${j}"><small>${m.off+j+1}</small>${SYM[s]||'·'}</button>`);
+      pd.innerHTML=`<b>Programa P${i+1}</b><div class="cts">${cts}</div>
+      <div class="row"><label>Carcasa <select data-k="${k}" data-i="${i}" data-f="cs">
+        <option value="0" ${p.cs==0?'selected':''}>Apagada</option><option value="p" ${p.cs=='p'?'selected':''}>+</option><option value="n" ${p.cs=='n'?'selected':''}>−</option></select></label>
+      <label>Amplitud (mA) <input type="number" step="0.05" min="0" data-k="${k}" data-i="${i}" data-f="amp" value="${p.amp}"></label>
+      <label>Ancho pulso (µs) <input type="number" step="10" min="0" data-k="${k}" data-i="${i}" data-f="pw" value="${p.pw}"></label>
+      <label>Frecuencia (Hz) <input type="number" step="1" min="0" data-k="${k}" data-i="${i}" data-f="hz" value="${p.hz}"></label></div>`;
+      d.appendChild(pd);
+    });
+    f.appendChild(d);
+  }
+}
+$('forms').addEventListener('click',e=>{
+  const b=e.target.closest('.ct');if(!b)return;
+  const p=S[b.dataset.k].p[b.dataset.i],j=+b.dataset.j;
+  p.c[j]=p.c[j]===0?'n':p.c[j]==='n'?'p':0;build();draw();
+});
+$('forms').addEventListener('input',e=>{
+  const t=e.target,k=t.dataset.k,f=t.dataset.f;if(!f)return;
+  if(f==='inter'){S[k].inter=t.checked;build();}
+  else if(f==='t')S[k].t=t.value;
+  else S[k].p[t.dataset.i][f]=(f==='cs'&&t.value==='0')?0:t.value;
+  draw();
+});
+['pid','fecha'].forEach(id=>$(id).addEventListener('input',draw));
+
+const ORG='#f5a623',TEAL='#1fb5ac',GR='#d2d4d4',CW=380,CH=410,GAP=20;
+function rr(c,x,y,w,h,r,fill,stroke){c.beginPath();c.roundRect(x,y,w,h,r);if(fill){c.fillStyle=fill;c.fill();}if(stroke){c.strokeStyle=stroke;c.lineWidth=1;c.stroke();}}
+function card(c,x,y,k,i){
+  const m=META[k],h=S[k],p=h.p[i];
+  c.save();c.translate(x,y);
+  rr(c,0,0,CW,CH,12,'#fff','#dfe3e3');
+  rr(c,0,0,CW,64,[12,12,0,0],TEAL);
+  c.fillStyle='#fff';c.textBaseline='middle';
+  c.font='24px Segoe UI,Arial,sans-serif';c.textAlign='left';c.fillText('P'+(i+1),20,34);
+  c.textAlign='center';c.font='17px Segoe UI,Arial,sans-serif';c.fillText(m.lead,CW/2,20);
+  c.font='22px Segoe UI,Arial,sans-serif';c.fillText(m.br+' '+(h.t||''),CW/2,44);
+  const cx=150;
+  rr(c,cx-26,78,52,322,[26,26,26,26],'#ececec');
+  const lv=[null,{yc:365,r:'R1',b:1,ring:1},{yc:290,r:'R2',b:2},{yc:205,r:'R3',b:5},{yc:120,r:'R4',b:8,ring:1}];
+  const lab=n=>m.off/2+n; // R1-R4 / R5-R8
+  const con=(n,rx,ry,w,hh,font)=>{
+    const s=p.c[n-1];
+    rr(c,rx,ry,w,hh,5,s==='p'?ORG:s?TEAL:GR);
+    c.textAlign='center';c.textBaseline='middle';
+    if(s){c.fillStyle='#fff';c.font='bold '+font+'px Arial';c.fillText(SYM[s],rx+w/2,ry+hh/2);}
+    c.fillStyle=s?'#fff':'#444';c.font=(w<30?'9':'11')+'px Arial';c.textAlign='right';c.textBaseline='top';
+    c.fillText(String(n+m.off),rx+w-2,ry+2);
+  };
+  for(let q=1;q<=4;q++){
+    const L=lv[q];
+    c.fillStyle='#555';c.font='18px Segoe UI,Arial,sans-serif';c.textAlign='right';c.textBaseline='middle';
+    c.fillText('R'+(q+(m.off?4:0)),cx-42,L.yc);
+    if(L.ring)con(L.b,cx-22,L.yc-20,44,40,26);
+    else{
+      con(L.b+2,cx-25,L.yc-27,24,24,18);
+      con(L.b+1,cx+1,L.yc-27,24,24,18);
+      con(L.b,cx-12,L.yc+1,24,24,18);
+    }
+  }
+  if(p.cs){
+    c.beginPath();c.arc(45,100,19,0,7);c.fillStyle=p.cs==='p'?ORG:TEAL;c.fill();
+    c.fillStyle='#fff';c.font='bold 26px Arial';c.textAlign='center';c.textBaseline='middle';c.fillText(SYM[p.cs],45,101);
+  }
+  const fl=[['Amplitude','amp','mA',3],['Pulse width','pw','µs',0],['Frequency','hz','Hz',0]];
+  fl.forEach((f,n)=>{
+    const by=118+n*98;
+    c.fillStyle='#777';c.font='19px Segoe UI,Arial,sans-serif';c.textAlign='left';c.textBaseline='alphabetic';
+    c.fillText(f[0],228,by-10);
+    rr(c,228,by,132,60,4,'#e6e6e6');
+    c.fillStyle='#222';c.font='34px Segoe UI,Arial,sans-serif';c.textBaseline='middle';
+    let v=p[f[1]];if(v!==''&&!isNaN(v)&&f[1]==='amp')v=(+v).toFixed(2);
+    c.fillText(v,240,by+31);
+    c.fillStyle='#777';c.font='20px Segoe UI,Arial,sans-serif';c.textAlign='right';c.fillText(f[2],352,by+31);
+  });
+  c.restore();
+}
+function rows(){return Math.max(S.L.inter?2:1,S.R.inter?2:1);}
+function draw(){
+  const cv=$('cv'),n=rows(),sc=2,W=GAP*3+CW*2,H=GAP+n*(CH+GAP);
+  cv.width=W*sc;cv.height=H*sc;
+  const c=cv.getContext('2d');c.scale(sc,sc);
+  c.fillStyle='#f3f4f4';c.fillRect(0,0,W,H);
+  ['L','R'].forEach((k,col)=>S[k].p.forEach((p,i)=>{if(i&&!S[k].inter)return;card(c,GAP+col*(CW+GAP),GAP+i*(CH+GAP),k,i);}));
+  data();
+}
+function rec(k,i){
+  const m=META[k],h=S[k],p=h.p[i];
+  const lst=s=>p.c.map((v,j)=>v===s?j+1+m.off:null).filter(Boolean);
+  return {paciente:$('pid').value,fecha:$('fecha').value,hemisferio:m.name,target:h.t,programa:'P'+(i+1),
+    contactos_negativos:lst('n').join('|'),contactos_positivos:lst('p').join('|'),
+    carcasa:p.cs==='p'?'+':p.cs==='n'?'-':'',amplitud_mA:p.amp,ancho_pulso_us:p.pw,frecuencia_Hz:p.hz,interleaving:h.inter?'si':'no'};
+}
+function data(){
+  const R=[];['L','R'].forEach(k=>S[k].p.forEach((p,i)=>{if(i&&!S[k].inter)return;R.push(rec(k,i));}));
+  const keys=Object.keys(R[0]);
+  $('csv').value=[keys.join(','),...R.map(r=>keys.map(x=>`"${String(r[x]).replace(/"/g,'""')}"`).join(','))].join('\n');
+  $('json').value=JSON.stringify(R,null,2);
+}
+$('dl').onclick=()=>{
+  $('cv').toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);
+    a.download=`DBS_${($('pid').value||'paciente').replace(/\W+/g,'_')}_${$('fecha').value}.png`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);});
+};
+const cp=(id,btn)=>$(btn).onclick=()=>{const t=$(id);t.select();navigator.clipboard?navigator.clipboard.writeText(t.value):document.execCommand('copy');};
+cp('csv','cpCsv');cp('json','cpJson');
+build();draw();
+</script>
+</body>
+</html>
